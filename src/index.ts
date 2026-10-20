@@ -40,11 +40,17 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: [env.clientOrigin, 'http://localhost:5173', 'http://localhost:3000'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or server-to-server) or any frontend origin
+    callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  optionsSuccessStatus: 204,
 }));
+app.options('*', cors());
 
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
 const globalRateLimit = rateLimit({
