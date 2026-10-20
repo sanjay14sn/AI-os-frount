@@ -174,7 +174,7 @@ export const completeInterview = async (req: Request, res: Response, next: NextF
     session.strengths = strengths;
     session.improvements = improvements;
     session.status = 'completed';
-    if (typeof req.body?.model === 'string') session.model = req.body.model.slice(0, 80);
+    if (typeof req.body?.model === 'string') session.aiModel = req.body.model.slice(0, 80);
     await session.save();
 
     res.json({

@@ -305,7 +305,7 @@ export const getMyProfile = async (req: Request, res: Response, next: NextFuncti
         if (latestSaved) {
           student.resume = {
             fileName: latestSaved.fileName,
-            fileUrl: latestSaved.fileUrl,
+            fileUrl: (latestSaved as any).fileUrl || '',
             uploadedAt: latestSaved.createdAt,
             atsScore: (latestSaved as any).atsScore || 78,
             overallScore: (latestSaved as any).overallScore || 82,

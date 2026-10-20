@@ -288,7 +288,7 @@ export const skillGap = async (req: Request, res: Response, next: NextFunction):
   try {
     const targetRole = String(req.body?.targetRole || 'Software Engineer');
     const profile = await studentContext(req);
-    const data = await generateJson(
+    const data = await generateJson<Record<string, any>>(
       `Compare this student with the role "${targetRole}". Return JSON with studentId, targetRole, currentSkills, requiredSkills, matchedSkills, missingSkills, matchPercent (0-100), and learningResources (array of {title, url}). Profile: ${JSON.stringify(profile || {})}`,
     );
     res.json({ success: true, data: { ...data, studentId: profile ? 'me' : '', targetRole } });
@@ -304,7 +304,7 @@ export const matchScore = async (req: Request, res: Response, next: NextFunction
     const profile = await studentContext(req);
     const job = await Job.findById(jobId).select('title skills description eligibility location').lean();
     if (!job) throw createError('Job not found', 404);
-    const data = await generateJson(
+    const data = await generateJson<Record<string, any>>(
       `Score how well this student matches the job, from 0 to 100. Return JSON with overallScore, breakdown (skillMatch, educationMatch, cgpaMatch, certificationMatch, locationMatch, preferenceMatch), matchedSkills, missingSkills, recommendation (one of suitable, borderline, not_suitable), explanation, strengths, and concerns. Student: ${JSON.stringify(profile || {})}. Job: ${JSON.stringify(job)}`,
     );
     res.json({ success: true, data: { ...data, studentId: 'me', jobId } });
@@ -335,7 +335,7 @@ export const analyzeResume = async (req: Request, res: Response, next: NextFunct
     if (resumeText.replace(/[^A-Za-z]/g, '').length < 40) {
       throw createError('Could not read this resume PDF.', 400);
     }
-    const data = await generateJson(
+    const data = await generateJson<Record<string, any>>(
       `Review this resume for the role "${targetRole}". Return JSON with fileName, targetRole, overallScore, atsScore, formattingScore, impactScore, parsedSummary (name, email, phone, wordCount, detectedSections, skillsFound), sections (skills, projects, atsKeywords, formatting, achievements, experience, education), strengths, weaknesses, matchedKeywords, missingKeywords, missingSkills, bulletFixes (array of {original, optimized, reason}), atsChecklist (array of {check, passed, details}), suggestions, and certificationRecommendations. Resume:\n${resumeText}`,
       'You are an ATS resume reviewer for campus placements. Scores are integers from 0 to 100.',
     );

@@ -10,7 +10,7 @@ export interface IInterviewSession extends Document {
   company: string;
   round: string;
   status: 'active' | 'completed' | 'abandoned';
-  model?: string;
+  aiModel?: string;
   transcript: IInterviewTurn[];
   score?: number;
   feedback?: string;
@@ -26,7 +26,7 @@ const interviewSessionSchema = new Schema<IInterviewSession>(
     company: { type: String, required: true, trim: true },
     round: { type: String, required: true, trim: true },
     status: { type: String, enum: ['active', 'completed', 'abandoned'], default: 'active', index: true },
-    model: { type: String },
+    aiModel: { type: String },
     transcript: [
       {
         role: { type: String, enum: ['interviewer', 'candidate'], required: true },
