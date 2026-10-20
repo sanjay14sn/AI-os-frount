@@ -1,0 +1,14 @@
+Sanjay Naveen
+Email: sanjay.naveen@example.com
+Phone: +91 9876543210
+
+Skills:
+React, TypeScript, Node.js, Express, MongoDB
+
+Experience:
+Software Engineer at Tech Corp (2020 - 2023)
+- Developed scalable React applications.
+- Built Node.js microservices.
+
+Education:
+B.Tech in Computer Science, XYZ University (2016 - 2020)
