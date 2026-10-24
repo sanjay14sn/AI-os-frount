@@ -1,5 +1,13 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
 import { env } from './env';
+
+// Ensure reliable SRV resolution on macOS/local network
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (e) {
+  // Ignore in environments where setting servers is restricted
+}
 
 const MAX_RETRIES = 5;
 const RETRY_INTERVAL_MS = 5000;

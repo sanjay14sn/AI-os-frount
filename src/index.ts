@@ -30,6 +30,7 @@ import recruiterRoutes from './routes/recruiter.routes';
 import userRoutes from './routes/user.routes';
 import communityRoutes from './routes/community.routes';
 import aiRoutes from './routes/ai.routes';
+import { emailRouter } from './routes/email.routes';
 
 // ─── App Init ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -106,6 +107,7 @@ app.use('/api/recruiter', recruiterRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/email', emailRouter);
 
 // ─── 404 & Error Handling ─────────────────────────────────────────────────────
 app.use(notFound);

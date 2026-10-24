@@ -5,9 +5,9 @@ import { authenticate } from '../middleware/auth';
 import { env } from '../config/env';
 import {
   login, registerStudent, registerCollege, verifyOtp, resendOtp,
-  forgotPassword, resetPassword, getMe, changePassword,
+  forgotPassword, resetPassword, forgotPasswordOtp, resetPasswordOtp, getMe, changePassword,
   loginSchema, registerStudentSchema, registerCollegeSchema,
-  verifyOtpSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema,
+  verifyOtpSchema, forgotPasswordSchema, resetPasswordSchema, forgotPasswordOtpSchema, resetPasswordOtpSchema, changePasswordSchema,
 } from '../controllers/auth.controller';
 import { z } from 'zod';
 
@@ -36,6 +36,8 @@ router.post(
 );
 router.post('/forgot-password', authRateLimit, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
+router.post('/forgot-password-otp', authRateLimit, validate(forgotPasswordOtpSchema), forgotPasswordOtp);
+router.post('/reset-password-otp', validate(resetPasswordOtpSchema), resetPasswordOtp);
 
 // ─── Protected Routes ─────────────────────────────────────────────────────────
 

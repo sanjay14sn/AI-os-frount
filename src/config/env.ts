@@ -32,6 +32,11 @@ export const env = {
     apiSecret: process.env.CLOUDINARY_API_SECRET || '',
   },
 
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.RESEND_FROM || 'AI Campus OS <support@aicampusintelligent.com>',
+  },
+
   smtp: {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587', 10),

@@ -96,9 +96,58 @@ export const createStudent = async (req: Request, res: Response, next: NextFunct
     if (!name || !email || !studentId || !collegeId || !department || !batch || !degree) {
       throw createError('Missing required fields: name, email, studentId, collegeId, department, batch, degree', 400);
     }
-    if (!mongoose.Types.ObjectId.isValid(collegeId as string)) {
-      throw createError('Enter a valid college code so the institution can be loaded', 400);
+    // Resolve College (supports registered colleges as well as individual/custom institutions)
+    let college: any = null;
+    if (collegeId && mongoose.Types.ObjectId.isValid(collegeId as string)) {
+      college = await College.findById(collegeId);
     }
+    if (!college && collegeId) {
+      college = await College.findOne({
+        $or: [
+          { code: String(collegeId).trim().toUpperCase() },
+          { name: new RegExp(`^${String(collegeId).trim()}$`, 'i') },
+        ],
+      });
+    }
+
+    // Auto-resolve or create the default Individual Candidates Institution if college isn't registered in Super Admin
+    if (!college) {
+      college = await College.findOne({ code: 'INDIVIDUAL' });
+      if (!college) {
+        college = await College.create({
+          name: 'Independent / Individual Students',
+          code: 'INDIVIDUAL',
+          city: 'Global',
+          state: 'General',
+          country: 'India',
+          phone: '1800-120-7522',
+          email: 'support@aicampusintelligent.com',
+          website: 'https://aicampusintelligent.com',
+          establishedYear: 2024,
+          affiliation: 'Direct Candidate Placement Registry',
+          type: 'engineering',
+          totalStudents: 1,
+          tpoName: 'AI Placement Coordinator',
+          tpoEmail: 'tpo@aicampusintelligent.com',
+          departments: ['Computer Science (CSE)', 'Information Technology (IT)', 'Electronics (ECE)', 'Mechanical', 'General'],
+          subscription: {
+            plan: 'enterprise',
+            status: 'active',
+            expiresAt: new Date('2035-12-31'),
+            studentsLimit: 1000000,
+            studentsUsed: 1,
+            aiCreditsLimit: 1000000,
+            aiCreditsUsed: 0,
+            recruitersLimit: 100000,
+            recruitersUsed: 0,
+            jobsLimit: 100000,
+            jobsUsed: 0,
+          },
+          isActive: true,
+        });
+      }
+    }
+
     const chosenPassword = String(password || '').trim();
     if (!req.user && chosenPassword.length < 6) {
       throw createError('Password must be at least 6 characters', 400);
@@ -108,16 +157,12 @@ export const createStudent = async (req: Request, res: Response, next: NextFunct
     const existingUser = await User.findOne({ email: (email as string).toLowerCase() });
     if (existingUser) throw createError('A user with this email already exists', 409);
 
-    // Validate college exists
-    const college = await College.findById(collegeId);
-    if (!college) throw createError('College not found', 404);
-
-    // Resolve departmentId (may be undefined for admin-created students)
+    // Resolve departmentId (may be undefined for individual or custom dept students)
     let resolvedDeptId: mongoose.Types.ObjectId;
     if (departmentId && mongoose.Types.ObjectId.isValid(departmentId as string)) {
       resolvedDeptId = new mongoose.Types.ObjectId(departmentId as string);
     } else {
-      // Create a placeholder ObjectId (not a real dept lookup)
+      // Create a placeholder ObjectId
       resolvedDeptId = new mongoose.Types.ObjectId();
     }
 
@@ -129,9 +174,9 @@ export const createStudent = async (req: Request, res: Response, next: NextFunct
       passwordHash: defaultPassword,
       name,
       role: 'STUDENT',
-      tenantId: new mongoose.Types.ObjectId(collegeId as string),
+      tenantId: college._id,
       phone: phone || '',
-      isEmailVerified: true, // admin-added students are pre-verified
+      isEmailVerified: true, // student registration verified via OTP
       isActive: true,
     });
 
@@ -140,7 +185,7 @@ export const createStudent = async (req: Request, res: Response, next: NextFunct
     // Create Student profile
     const student = await Student.create({
       userId: user._id,
-      collegeId: new mongoose.Types.ObjectId(collegeId as string),
+      collegeId: college._id,
       departmentId: resolvedDeptId,
       studentId,
       name,
@@ -177,13 +222,13 @@ export const createStudent = async (req: Request, res: Response, next: NextFunct
         {
           id: `edu-${Date.now()}`,
           level: 'graduation',
-          institution: college.name,
+          institution: (req.body.collegeName || (college.code === 'INDIVIDUAL' && collegeId !== 'INDIVIDUAL' && collegeId !== 'individual' ? String(collegeId) : college.name)),
           degree,
           specialization: department as string,
           score: numericCgpa,
           scoreType: 'cgpa',
           yearOfPassing: parseInt(batch as string) || 2025,
-          location: college.city,
+          location: college.city || 'India',
         },
       ],
       experience: [],

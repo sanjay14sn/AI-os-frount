@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { env } from '../config/env';
+import { emailService } from './email.service';
 
 // ─── OTP Generator ───────────────────────────────────────────────────────────
 
@@ -117,47 +118,68 @@ const passwordResetEmailTemplate = (name: string, resetUrl: string): string => `
 
 export const otpService = {
   /**
-   * Send OTP via email. Falls back to console log in dev if SMTP not configured.
+   * Send OTP via email using Resend (falls back to SMTP or console log).
    */
   sendOtp: async (email: string, name: string, otp: string): Promise<void> => {
     console.log(`[OTP] 📧 OTP for ${email}: ${otp} (expires in ${env.otp.expiresMinutes} min)`);
 
+    // 1. Primary: Send via Resend
+    if (env.resend.apiKey) {
+      const res = await emailService.sendOtp(email, name, otp, env.otp.expiresMinutes);
+      if (res.success) {
+        console.log(`[OTP] ✅ Delivered via Resend to ${email}`);
+        return;
+      }
+      console.warn(`[OTP] ⚠️ Resend delivery failed, attempting SMTP fallback:`, res.error);
+    }
+
+    // 2. Secondary: Fallback to Nodemailer transporter
     const transporter = createTransporter();
     if (!transporter) return; // Dev mode — OTP logged to console
 
     try {
       await transporter.sendMail({
-        from: env.smtp.from,
+        from: env.resend.from || env.smtp.from,
         to: email,
-        subject: `${otp} — Your SVM PlacementOS Verification Code`,
+        subject: `${otp} — Your AI Campus OS Verification Code`,
         html: otpEmailTemplate(name, otp, env.otp.expiresMinutes),
       });
-      console.log(`[OTP] ✅ Email sent to ${email}`);
+      console.log(`[OTP] ✅ Delivered via SMTP fallback to ${email}`);
     } catch (error) {
-      console.error('[OTP] ❌ Failed to send email:', (error as Error).message);
-      // Don't throw — OTP is still logged to console for dev testing
+      console.error('[OTP] ❌ Failed to send email via SMTP:', (error as Error).message);
     }
   },
 
   /**
-   * Send password reset email
+   * Send password reset email using Resend (falls back to SMTP or console log).
    */
   sendPasswordReset: async (email: string, name: string, resetUrl: string): Promise<void> => {
     console.log(`[RESET] 🔗 Password reset link for ${email}: ${resetUrl}`);
 
+    // 1. Primary: Send via Resend
+    if (env.resend.apiKey) {
+      const res = await emailService.sendPasswordReset(email, name, resetUrl);
+      if (res.success) {
+        console.log(`[RESET] ✅ Delivered via Resend to ${email}`);
+        return;
+      }
+      console.warn(`[RESET] ⚠️ Resend delivery failed, attempting SMTP fallback:`, res.error);
+    }
+
+    // 2. Secondary: Fallback to Nodemailer transporter
     const transporter = createTransporter();
     if (!transporter) return;
 
     try {
       await transporter.sendMail({
-        from: env.smtp.from,
+        from: env.resend.from || env.smtp.from,
         to: email,
-        subject: 'Reset your SVM PlacementOS password',
+        subject: 'Reset your AI Campus OS password',
         html: passwordResetEmailTemplate(name, resetUrl),
       });
-      console.log(`[RESET] ✅ Reset email sent to ${email}`);
+      console.log(`[RESET] ✅ Delivered via SMTP fallback to ${email}`);
     } catch (error) {
-      console.error('[RESET] ❌ Failed to send reset email:', (error as Error).message);
+      console.error('[RESET] ❌ Failed to send reset email via SMTP:', (error as Error).message);
     }
   },
 

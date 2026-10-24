@@ -24,12 +24,16 @@ export const registerStudentSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
   phone: z.string().optional(),
   collegeId: z.string().min(1, 'College is required'),
-  departmentId: z.string().min(1, 'Department is required'),
-  studentId: z.string().min(1, 'Student roll number is required'),
+  departmentId: z.string().optional(),
+  studentId: z.string().optional(),
   department: z.string().min(1, 'Department name is required'),
   batch: z.string().min(4, 'Batch year is required'),
   degree: z.string().min(1, 'Degree is required'),
-  cgpa: z.number().min(0).max(10),
+  cgpa: z.number().min(0).max(10).optional().default(0),
+  collegeName: z.string().optional(),
+  isIndividual: z.boolean().optional(),
+  aadharNumber: z.string().optional(),
+  aadharCard: z.any().optional(),
 });
 
 export const registerCollegeSchema = z.object({
@@ -57,8 +61,18 @@ export const forgotPasswordSchema = z.object({
   email: z.string().email().toLowerCase(),
 });
 
+export const forgotPasswordOtpSchema = z.object({
+  email: z.string().email().toLowerCase(),
+});
+
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Reset token required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+export const resetPasswordOtpSchema = z.object({
+  email: z.string().email().toLowerCase(),
+  otp: z.string().length(6, 'OTP must be exactly 6 digits'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -161,8 +175,10 @@ export const registerStudent = async (
     const existingUser = await User.findOne({ email: data.email });
     if (existingUser) {
       if (!existingUser.isEmailVerified) {
-        // Re-send OTP
+        // Re-send OTP & update profile credentials
         const otp = generateOtp();
+        existingUser.name = data.name;
+        existingUser.passwordHash = data.password; // hashed by pre-save hook
         existingUser.otpCode = otp;
         existingUser.otpExpiresAt = getOtpExpiry();
         existingUser.otpAttempts = 0;
@@ -171,24 +187,69 @@ export const registerStudent = async (
 
         res.status(200).json({
           success: true,
-          message: 'OTP resent. Please verify your email.',
+          message: `Verification code resent to ${data.email}. Please verify your email.`,
           data: { requiresOtp: true, email: data.email },
         });
         return;
       }
-      throw createError('Email already registered. Please login.', 409);
+      throw createError('Email already registered and verified. Please sign in.', 409);
     }
 
-    // Validate college exists
-    const college = await College.findById(data.collegeId);
+    // Validate college exists or fallback to individual/custom
+    let college: any = null;
+    if (data.collegeId && mongoose.Types.ObjectId.isValid(data.collegeId)) {
+      college = await College.findById(data.collegeId);
+    }
+    if (!college && data.collegeId) {
+      college = await College.findOne({
+        $or: [
+          { code: String(data.collegeId).trim().toUpperCase() },
+          { name: new RegExp(`^${String(data.collegeId).trim()}$`, 'i') },
+        ],
+      });
+    }
     if (!college) {
-      throw createError('College not found', 404);
+      college = await College.findOne({ code: 'INDIVIDUAL' });
+    }
+    if (!college) {
+      college = await College.create({
+        name: 'Independent / Individual Students',
+        code: 'INDIVIDUAL',
+        city: 'Global',
+        state: 'General',
+        country: 'India',
+        phone: '1800-120-7522',
+        email: 'support@aicampusintelligent.com',
+        website: 'https://aicampusintelligent.com',
+        establishedYear: 2024,
+        affiliation: 'Direct Candidate Placement Registry',
+        type: 'engineering',
+        totalStudents: 1,
+        tpoName: 'AI Placement Coordinator',
+        tpoEmail: 'tpo@aicampusintelligent.com',
+        departments: ['Computer Science (CSE)', 'Information Technology (IT)', 'Electronics (ECE)', 'Mechanical', 'General'],
+        subscription: {
+          plan: 'enterprise',
+          status: 'active',
+          expiresAt: new Date('2035-12-31'),
+          studentsLimit: 1000000,
+          studentsUsed: 1,
+          aiCreditsLimit: 1000000,
+          aiCreditsUsed: 0,
+          recruitersLimit: 100000,
+          recruitersUsed: 0,
+          jobsLimit: 100000,
+          jobsUsed: 0,
+        },
+      });
     }
 
-    // Validate department exists
-    const department = await Department.findById(data.departmentId);
-    if (!department) {
-      throw createError('Department not found', 404);
+    // Validate department exists or create fallback ObjectId
+    let departmentIdObj: mongoose.Types.ObjectId;
+    if (data.departmentId && mongoose.Types.ObjectId.isValid(data.departmentId)) {
+      departmentIdObj = new mongoose.Types.ObjectId(data.departmentId);
+    } else {
+      departmentIdObj = new mongoose.Types.ObjectId();
     }
 
     const otp = generateOtp();
@@ -199,20 +260,22 @@ export const registerStudent = async (
       passwordHash: data.password, // hashed by pre-save hook
       name: data.name,
       role: 'STUDENT',
-      tenantId: new mongoose.Types.ObjectId(data.collegeId),
-      phone: data.phone,
+      tenantId: college._id,
+      phone: data.phone || '',
       isEmailVerified: false,
       otpCode: otp,
       otpExpiresAt: getOtpExpiry(),
     });
 
     // Create Student profile (linked to user)
-    const cgpa = data.cgpa;
+    const cgpa = data.cgpa || 0;
+    const studentRoll = data.studentId || `${college.code || 'STU'}${data.batch || '2025'}${data.department.substring(0, 2).toUpperCase()}${Math.floor(100 + Math.random() * 900)}`;
+
     await Student.create({
       userId: user._id,
-      collegeId: new mongoose.Types.ObjectId(data.collegeId),
-      departmentId: new mongoose.Types.ObjectId(data.departmentId),
-      studentId: data.studentId,
+      collegeId: college._id,
+      departmentId: departmentIdObj,
+      studentId: studentRoll,
       name: data.name,
       email: data.email,
       phone: data.phone || '',
@@ -223,35 +286,42 @@ export const registerStudent = async (
       isEligible: cgpa >= 6.5,
       placementStatus: 'not_placed',
       placementReadinessScore: 30,
-      profileCompletion: 35,
+      profileCompletion: data.aadharCard ? 45 : 35,
       preferredLocations: [],
       preferredRoles: [],
       expectedSalary: 0,
       skills: [],
+      aadharNumber: data.aadharNumber ? String(data.aadharNumber).trim() : undefined,
+      aadharCard: data.aadharCard ? {
+        fileName: data.aadharCard.fileName || 'aadhar_card.pdf',
+        fileUrl: data.aadharCard.fileUrl || '',
+        fileSize: data.aadharCard.fileSize || 0,
+        uploadedAt: data.aadharCard.uploadedAt || new Date(),
+      } : undefined,
       certifications: [],
       projects: [],
       education: [
         {
           id: `edu-${Date.now()}`,
           level: 'graduation',
-          institution: college.name,
+          institution: data.collegeName || (college.code === 'INDIVIDUAL' ? 'Independent Student' : college.name),
           degree: data.degree,
           specialization: data.department,
           score: cgpa,
           scoreType: 'cgpa',
           yearOfPassing: parseInt(data.batch) || 2025,
-          location: college.city,
+          location: college.city || 'India',
         },
       ],
       experience: [],
     });
 
-    // Send OTP
+    // Send Real OTP via Resend / SMTP
     await otpService.sendOtp(data.email, data.name, otp);
 
     res.status(201).json({
       success: true,
-      message: `OTP sent to ${data.email}. Please verify your email.`,
+      message: `Verification code sent to ${data.email}. Please verify your email.`,
       data: { requiresOtp: true, email: data.email },
     });
   } catch (error) {
@@ -396,10 +466,18 @@ export const verifyOtp = async (
       user.tenantId?.toString()
     );
 
+    const payload = buildUserResponse(user, token);
+    if (user.tenantId) {
+      const college = await College.findById(user.tenantId).select('name code');
+      if (college) {
+        Object.assign(payload.user, { collegeCode: college.code, collegeName: college.name });
+      }
+    }
+
     res.json({
       success: true,
-      message: 'Email verified successfully! Welcome to PlacementOS.',
-      data: buildUserResponse(user, token),
+      message: 'Email verified successfully! Welcome to AI Campus OS.',
+      data: payload,
     });
   } catch (error) {
     next(error);
@@ -509,6 +587,83 @@ export const resetPassword = async (
     await user.save();
 
     res.json({ success: true, message: 'Password reset successfully. You can now login.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/forgot-password-otp
+ * Generates and sends a 6-digit OTP to the user's email via Resend
+ */
+export const forgotPasswordOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { email } = req.body as z.infer<typeof forgotPasswordOtpSchema>;
+
+    const user = await User.findOne({ email });
+
+    if (user) {
+      const otp = generateOtp();
+      user.otpCode = otp;
+      user.otpExpiresAt = getOtpExpiry();
+      user.otpAttempts = 0;
+      await user.save();
+
+      await otpService.sendOtp(email, user.name, otp);
+    }
+
+    res.json({
+      success: true,
+      message: 'If an account exists with that email, a 6-digit verification code has been sent.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/reset-password-otp
+ * Verifies the 6-digit OTP and updates the password
+ */
+export const resetPasswordOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { email, otp, password } = req.body as z.infer<typeof resetPasswordOtpSchema>;
+
+    const user = await User.findOne({ email }).select('+otpCode +otpExpiresAt');
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    if (!user.otpCode || !user.otpExpiresAt) {
+      throw createError('No OTP found. Please request a new code.', 400);
+    }
+
+    const result = otpService.verify(otp, user.otpCode, user.otpExpiresAt);
+    if (!result.valid) {
+      user.otpAttempts = (user.otpAttempts || 0) + 1;
+      await user.save();
+      throw createError(result.reason || 'Invalid verification code', 400);
+    }
+
+    // Set new password (will be hashed by pre-save hook)
+    user.passwordHash = password;
+    user.otpCode = undefined;
+    user.otpExpiresAt = undefined;
+    user.otpAttempts = 0;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully! You can now log in with your new password.',
+    });
   } catch (error) {
     next(error);
   }
