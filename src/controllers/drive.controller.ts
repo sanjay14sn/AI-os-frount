@@ -19,8 +19,37 @@ export const getDrives = async (req: Request, res: Response, next: NextFunction)
     const filter: Record<string, unknown> = {};
     const { status } = req.query;
 
-    if (req.user?.tenantId && req.user.role !== 'SUPER_ADMIN') {
-      filter.collegeId = new mongoose.Types.ObjectId(req.user.tenantId);
+    const isCampusOS = req.query.campusos === 'true' || req.query.isPlatform === 'true';
+
+    if (isCampusOS) {
+      // Fetch drives tied to platform companies or flagged as platform/CampusOS
+      const platformCompanies = await mongoose.model('Company').find({
+        $or: [{ isPlatform: true }, { createdByRole: 'SUPER_ADMIN' }],
+      }).select('_id').lean();
+      const platformCompanyIds = platformCompanies.map((c: any) => c._id);
+
+      filter.$or = [
+        { isPlatform: true },
+        { isCampusOS: true },
+        { companyId: { $in: platformCompanyIds } },
+      ];
+    } else if (req.user?.role === 'RECRUITER') {
+      const companyId = req.user.tenantId;
+      if (companyId && mongoose.isValidObjectId(companyId)) {
+        filter.companyId = new mongoose.Types.ObjectId(companyId);
+      }
+    } else {
+      const effectiveCollegeId =
+        ((req.user?.role === 'COLLEGE_ADMIN' || req.user?.role === 'TPO') && req.user?.tenantId) ||
+        (typeof req.query.collegeId === 'string' ? req.query.collegeId : undefined);
+
+      if (effectiveCollegeId) {
+        if (mongoose.isValidObjectId(effectiveCollegeId)) {
+          filter.collegeId = new mongoose.Types.ObjectId(effectiveCollegeId);
+        } else {
+          filter.collegeId = new mongoose.Types.ObjectId('000000000000000000000000');
+        }
+      }
     }
     if (status) filter.status = status;
 
@@ -58,9 +87,19 @@ export const getDriveById = async (req: Request, res: Response, next: NextFuncti
 
 export const createDrive = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    let collegeId = req.body.collegeId;
+    let companyId = req.body.companyId;
+
+    if (req.user?.role === 'RECRUITER') {
+      companyId = companyId || req.user.tenantId;
+    } else if (req.user?.role === 'COLLEGE_ADMIN' || req.user?.role === 'TPO') {
+      collegeId = collegeId || req.user.tenantId;
+    }
+
     const drive = await PlacementDrive.create({
       ...req.body,
-      collegeId: req.body.collegeId || req.user?.tenantId,
+      ...(collegeId ? { collegeId } : {}),
+      ...(companyId ? { companyId } : {}),
     });
     
     // Inject the frontend-provided company and job objects back into the response

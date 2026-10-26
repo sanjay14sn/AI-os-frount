@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Company } from '../models/Company';
+import { User } from '../models/User';
 import { createError } from '../middleware/errorHandler';
 
 export const getCompanies = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -22,6 +24,31 @@ export const getCompanies = async (req: Request, res: Response, next: NextFuncti
     else if (status === 'inactive') filter.isActive = false;
     else if (status === 'tied') filter.isTied = true;
 
+    const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
+    const effectiveCollegeId =
+      (!isSuperAdmin && req.user?.tenantId) ||
+      (typeof req.query.collegeId === 'string' ? req.query.collegeId : undefined);
+
+    let allCompaniesFilter: Record<string, unknown> = {};
+
+    if (isSuperAdmin) {
+      // Super Admin ONLY views platform partner companies, never college-specific companies
+      filter.isPlatform = true;
+      filter.createdByRole = { $ne: 'COLLEGE_ADMIN' };
+      allCompaniesFilter = { isPlatform: true, createdByRole: { $ne: 'COLLEGE_ADMIN' } };
+    } else if (effectiveCollegeId) {
+      if (mongoose.isValidObjectId(effectiveCollegeId)) {
+        filter.colleges = new mongoose.Types.ObjectId(effectiveCollegeId);
+        allCompaniesFilter = { colleges: new mongoose.Types.ObjectId(effectiveCollegeId) };
+      } else {
+        filter.colleges = new mongoose.Types.ObjectId('000000000000000000000000');
+        allCompaniesFilter = { colleges: new mongoose.Types.ObjectId('000000000000000000000000') };
+      }
+    } else if (req.query.isPlatform === 'true' || req.query.scope === 'platform') {
+      filter.isPlatform = true;
+      allCompaniesFilter = { isPlatform: true };
+    }
+
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
     const skip = (page - 1) * limit;
@@ -29,7 +56,7 @@ export const getCompanies = async (req: Request, res: Response, next: NextFuncti
     const [data, total, allCompanies] = await Promise.all([
       Company.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Company.countDocuments(filter),
-      Company.find({}).lean(),
+      Company.find(allCompaniesFilter).lean(),
     ]);
 
     const totalPartnerCompanies = allCompanies.length;
@@ -86,8 +113,28 @@ export const getCompanyById = async (req: Request, res: Response, next: NextFunc
 
 export const createCompany = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
+    const collegeId = !isSuperAdmin ? (req.user?.tenantId || (req.body.collegeId ? req.body.collegeId : undefined)) : undefined;
+    const colleges = collegeId && mongoose.isValidObjectId(collegeId) ? [new mongoose.Types.ObjectId(collegeId)] : (req.body.colleges || []);
+
+    const recruiterEmail = req.body.recruiterEmail ? String(req.body.recruiterEmail).trim().toLowerCase() : undefined;
+    const recruiterPassword = req.body.recruiterPassword ? String(req.body.recruiterPassword) : undefined;
+    const recruiterName = req.body.recruiterName?.trim() || req.body.name?.trim() || 'Corporate Recruiter';
+    const recruiterPhone = req.body.recruiterPhone?.trim() || '';
+
+    if (recruiterEmail && recruiterPassword) {
+      const existingUser = await User.findOne({ email: recruiterEmail });
+      if (existingUser) {
+        throw createError('A user with this recruiter email already exists', 400);
+      }
+    }
+
     const payload = {
       ...req.body,
+      colleges,
+      isPlatform: isSuperAdmin ? true : !!req.body.isPlatform,
+      createdByRole: isSuperAdmin ? 'SUPER_ADMIN' : 'COLLEGE_ADMIN',
+      email: recruiterEmail,
       industry: req.body.industry || 'Technology',
       hq: req.body.hq || 'Bengaluru',
       size: req.body.size || 'medium',
@@ -96,14 +143,35 @@ export const createCompany = async (req: Request, res: Response, next: NextFunct
       highestPackage: Number(req.body.highestPackage || 28),
     };
     const company = await Company.create(payload);
+
+    let recruiterUserId: mongoose.Types.ObjectId | undefined;
+    if (recruiterEmail && recruiterPassword) {
+      const recruiterUser = await User.create({
+        name: recruiterName,
+        email: recruiterEmail,
+        passwordHash: recruiterPassword, // automatically hashed by userSchema.pre('save')
+        role: 'RECRUITER',
+        tenantId: company._id,
+        phone: recruiterPhone,
+        isActive: true,
+        isEmailVerified: true,
+      });
+      recruiterUserId = recruiterUser._id;
+      company.recruiterId = recruiterUserId;
+      await company.save();
+    }
+
     const doc = company.toObject();
     res.status(201).json({
       success: true,
       data: {
         ...doc,
         id: doc._id.toString(),
+        recruiterId: recruiterUserId ? recruiterUserId.toString() : undefined,
       },
-      message: 'Company created successfully',
+      message: recruiterEmail
+        ? `Company and Recruiter login (${recruiterEmail}) created successfully!`
+        : 'Company created successfully',
     });
   } catch (error) { next(error); }
 };

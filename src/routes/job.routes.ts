@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { getJobs, getJobById, createJob, updateJob, deleteJob } from '../controllers/job.controller';
 import { searchGoogleJobs, listSavedResumes, uploadSavedResume, downloadSavedResume, deleteSavedResume } from '../controllers/googleJobs.controller';
-import { authenticate } from '../middleware/auth';
+import { authenticate, optionalAuth } from '../middleware/auth';
 
 const router = Router();
 const upload = multer({
@@ -15,10 +15,10 @@ router.get('/resumes', authenticate, listSavedResumes);
 router.post('/resumes', authenticate, upload.single('resume'), uploadSavedResume);
 router.get('/resumes/:id/file', authenticate, downloadSavedResume);
 router.delete('/resumes/:id', authenticate, deleteSavedResume);
-router.get('/', getJobs);
-router.get('/:id', getJobById);
-router.post('/', createJob);
-router.put('/:id', updateJob);
-router.delete('/:id', deleteJob);
+router.get('/', optionalAuth, getJobs);
+router.get('/:id', optionalAuth, getJobById);
+router.post('/', optionalAuth, createJob);
+router.put('/:id', optionalAuth, updateJob);
+router.delete('/:id', optionalAuth, deleteJob);
 
 export default router;

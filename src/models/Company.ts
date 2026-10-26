@@ -20,6 +20,10 @@ export interface ICompany extends Document {
   highestPackage: number;
   isActive: boolean;
   isTied: boolean;
+  isPlatform?: boolean;
+  createdByRole?: 'SUPER_ADMIN' | 'COLLEGE_ADMIN' | 'RECRUITER';
+  email?: string;
+  recruiterId?: mongoose.Types.ObjectId;
   colleges: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
@@ -53,6 +57,14 @@ const companySchema = new Schema<ICompany>(
     highestPackage: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
     isTied: { type: Boolean, default: false },
+    isPlatform: { type: Boolean, default: false },
+    createdByRole: {
+      type: String,
+      enum: ['SUPER_ADMIN', 'COLLEGE_ADMIN', 'RECRUITER'],
+      default: 'COLLEGE_ADMIN',
+    },
+    email: { type: String, lowercase: true, trim: true },
+    recruiterId: { type: Schema.Types.ObjectId, ref: 'User' },
     colleges: [{ type: Schema.Types.ObjectId, ref: 'College' }],
   },
   {

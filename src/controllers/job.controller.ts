@@ -52,9 +52,17 @@ export const getJobs = async (req: Request, res: Response, next: NextFunction): 
       ];
     }
 
+    const effectiveCollegeId =
+      (req.user?.role !== 'SUPER_ADMIN' && req.user?.tenantId) ||
+      (typeof req.query.collegeId === 'string' ? req.query.collegeId : undefined);
+
     // Filter by college for college-scoped users
-    if (req.user?.tenantId && req.user.role !== 'SUPER_ADMIN') {
-      filter.collegeIds = new mongoose.Types.ObjectId(req.user.tenantId);
+    if (effectiveCollegeId) {
+      if (mongoose.isValidObjectId(effectiveCollegeId)) {
+        filter.collegeIds = new mongoose.Types.ObjectId(effectiveCollegeId);
+      } else {
+        filter.collegeIds = new mongoose.Types.ObjectId('000000000000000000000000');
+      }
     }
 
     const page = parseInt(req.query.page as string) || 1;
@@ -98,13 +106,68 @@ export const getJobById = async (req: Request, res: Response, next: NextFunction
 
 export const createJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = req.body;
+    const data = { ...req.body };
+
+    // Resolve recruiterId
+    let recruiterId = req.user?.userId || data.recruiterId;
+    if (!recruiterId || !mongoose.isValidObjectId(recruiterId)) {
+      const defaultUser: any = await mongoose.model('User').findOne({ role: 'RECRUITER' }).select('_id').lean()
+        || await mongoose.model('User').findOne().select('_id').lean();
+      recruiterId = defaultUser?._id?.toString() || new mongoose.Types.ObjectId().toString();
+    }
+
+    // Resolve companyId
+    let companyId = data.companyId || (req.user?.role === 'RECRUITER' ? req.user.tenantId : undefined);
+    if (!companyId || !mongoose.isValidObjectId(companyId)) {
+      if (data.company?.id && mongoose.isValidObjectId(data.company.id)) {
+        companyId = data.company.id;
+      } else {
+        const defaultCompany: any = await mongoose.model('Company').findOne().select('_id').lean();
+        companyId = defaultCompany?._id?.toString() || new mongoose.Types.ObjectId().toString();
+      }
+    }
+
+    // Strip frontend non-schema properties
+    const companyPayload = data.company;
+    delete data.company;
+    delete data.id;
+    delete data._id;
+
+    // Default eligibility
+    const eligibility = {
+      minCgpa: data.eligibility?.minCgpa ?? 6.0,
+      maxBacklogs: data.eligibility?.maxBacklogs ?? 0,
+      branches: data.eligibility?.branches?.length ? data.eligibility.branches : ['CSE', 'ISE', 'ECE'],
+      degree: data.eligibility?.degree?.length ? data.eligibility.degree : ['B.E.'],
+      graduationYear: data.eligibility?.graduationYear?.length ? data.eligibility.graduationYear : [new Date().getFullYear()],
+      requiredSkills: data.eligibility?.requiredSkills || [],
+    };
+
     const job = await Job.create({
       ...data,
-      recruiterId: new mongoose.Types.ObjectId(req.user!.userId),
-      stats: { eligible: 0, applied: 0, shortlisted: 0, interviewed: 0, selected: 0 },
+      companyId: new mongoose.Types.ObjectId(companyId),
+      recruiterId: new mongoose.Types.ObjectId(recruiterId),
+      eligibility,
+      stats: data.stats || { eligible: 0, applied: 0, shortlisted: 0, interviewed: 0, selected: 0 },
     });
-    res.status(201).json({ success: true, data: job, message: 'Job created successfully' });
+
+    const populated = await Job.findById(job._id)
+      .populate('companyId', 'name logo industry hq')
+      .lean();
+
+    const populatedCompany = populated?.companyId && typeof populated.companyId === 'object' ? populated.companyId : null;
+    const company = (populatedCompany && 'name' in populatedCompany)
+      ? populatedCompany
+      : (companyPayload || { name: 'Partner Company', industry: 'Technology', hq: data.location || 'Bengaluru', logo: '' });
+
+    const responseJob = {
+      ...(populated || job.toObject()),
+      id: job._id.toString(),
+      companyId,
+      company,
+    };
+
+    res.status(201).json({ success: true, data: responseJob, message: 'Job created successfully' });
   } catch (error) { next(error); }
 };
 

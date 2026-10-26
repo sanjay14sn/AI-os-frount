@@ -3,23 +3,64 @@ import mongoose from 'mongoose';
 import { Interview } from '../models/Interview';
 import { Student } from '../models/Student';
 import { Application } from '../models/Application';
+import { PlacementDrive } from '../models/PlacementDrive';
 import { createError } from '../middleware/errorHandler';
 
 export const getInterviews = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const filter: Record<string, unknown> = {};
+    const conditions: Record<string, unknown>[] = [];
     const { status, date, studentId } = req.query;
+
+    const effectiveCollegeId =
+      (req.user?.role !== 'SUPER_ADMIN' && req.user?.tenantId) ||
+      (typeof req.query.collegeId === 'string' ? req.query.collegeId : undefined);
 
     if (req.user?.role === 'STUDENT') {
       const student = await Student.findOne({ userId: req.user.userId }).lean();
       if (student) filter.studentId = student._id;
+      else filter.studentId = new mongoose.Types.ObjectId('000000000000000000000000');
     } else if (req.user?.role === 'RECRUITER') {
-      filter.recruiterId = new mongoose.Types.ObjectId(req.user.userId);
+      const companyId = req.user.tenantId;
+      const recruiterConditions: Record<string, unknown>[] = [];
+      if (req.user?.userId && mongoose.isValidObjectId(req.user.userId)) {
+        recruiterConditions.push({ recruiterId: new mongoose.Types.ObjectId(req.user.userId) });
+      }
+      if (companyId && mongoose.isValidObjectId(companyId)) {
+        recruiterConditions.push({ companyId: new mongoose.Types.ObjectId(companyId) });
+      }
+      if (recruiterConditions.length > 0) {
+        conditions.push({ $or: recruiterConditions });
+      }
+    } else if (effectiveCollegeId) {
+      if (mongoose.isValidObjectId(effectiveCollegeId)) {
+        const collegeObjId = new mongoose.Types.ObjectId(effectiveCollegeId);
+        const [students, drives] = await Promise.all([
+          Student.find({ collegeId: collegeObjId }).select('_id').lean(),
+          PlacementDrive.find({ collegeId: collegeObjId }).select('_id').lean(),
+        ]);
+        const studentIds = students.map(s => s._id);
+        const driveIds = drives.map(d => d._id);
+        conditions.push({
+          $or: [
+            { studentId: { $in: studentIds } },
+            { driveId: { $in: driveIds } },
+          ],
+        });
+      } else {
+        conditions.push({ studentId: new mongoose.Types.ObjectId('000000000000000000000000') });
+      }
     }
 
     if (status) filter.status = status;
     if (date) filter.date = { $gte: new Date(date as string), $lt: new Date(new Date(date as string).getTime() + 86400000) };
     if (studentId) filter.studentId = new mongoose.Types.ObjectId(studentId as string);
+
+    if (conditions.length === 1) {
+      Object.assign(filter, conditions[0]);
+    } else if (conditions.length > 1) {
+      filter.$and = conditions;
+    }
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);

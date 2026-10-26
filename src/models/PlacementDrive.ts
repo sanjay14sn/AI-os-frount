@@ -2,7 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IPlacementDrive extends Document {
   _id: mongoose.Types.ObjectId;
-  collegeId: mongoose.Types.ObjectId;
+  collegeId?: mongoose.Types.ObjectId;
   companyId: mongoose.Types.ObjectId;
   jobId: mongoose.Types.ObjectId;
   title: string;
@@ -11,6 +11,8 @@ export interface IPlacementDrive extends Document {
   endDate?: Date;
   venue: string;
   status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
+  isPlatform?: boolean;
+  isCampusOS?: boolean;
   eligibleDepartments: string[];
   eligibility: {
     minCgpa: number;
@@ -45,7 +47,7 @@ export interface IPlacementDrive extends Document {
 
 const placementDriveSchema = new Schema<IPlacementDrive>(
   {
-    collegeId: { type: Schema.Types.ObjectId, ref: 'College', required: true, index: true },
+    collegeId: { type: Schema.Types.ObjectId, ref: 'College', required: false, index: true },
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true },
     jobId: { type: Schema.Types.ObjectId, ref: 'Job' },
     title: { type: String, required: true },
@@ -58,6 +60,8 @@ const placementDriveSchema = new Schema<IPlacementDrive>(
       enum: ['upcoming', 'ongoing', 'completed', 'cancelled'],
       default: 'upcoming',
     },
+    isPlatform: { type: Boolean, default: false, index: true },
+    isCampusOS: { type: Boolean, default: false, index: true },
     eligibleDepartments: [{ type: String }],
     eligibility: {
       minCgpa: { type: Number, default: 6.0 },

@@ -40,8 +40,8 @@ export const updateStudentSchema = z.object({
 const buildQuery = (req: Request) => {
   const filter: Record<string, unknown> = {};
 
-  // Scope to college for non-super-admin when authenticated
-  if (req.user?.role !== 'SUPER_ADMIN' && req.user?.tenantId) {
+  // Scope to college for COLLEGE_ADMIN and TPO when authenticated
+  if ((req.user?.role === 'COLLEGE_ADMIN' || req.user?.role === 'TPO') && req.user?.tenantId) {
     if (req.user.tenantId !== 'college-1') {
       try {
         filter.collegeId = new mongoose.Types.ObjectId(req.user.tenantId);
@@ -58,7 +58,7 @@ const buildQuery = (req: Request) => {
     } catch { /* ignore invalid id */ }
   }
 
-  const { search, department, placementStatus, batch, isEligible } = req.query;
+  const { search, department, placementStatus, batch, isEligible, minCgpa } = req.query;
 
   if (search) {
     const term = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -70,10 +70,27 @@ const buildQuery = (req: Request) => {
       { skills: { $regex: term, $options: 'i' } },
     ];
   }
-  if (department) filter.department = { $regex: `^${department}$`, $options: 'i' };
+  if (department) {
+    const d = String(department).trim();
+    if (d.toLowerCase() === 'cse') {
+      filter.$or = [{ department: /cse/i }, { department: /computer science/i }];
+    } else if (d.toLowerCase() === 'ise') {
+      filter.$or = [{ department: /ise/i }, { department: /information science/i }, { department: /information technology/i }, { department: /^it$/i }];
+    } else if (d.toLowerCase() === 'ece') {
+      filter.$or = [{ department: /ece/i }, { department: /electronics/i }];
+    } else {
+      filter.department = { $regex: d, $options: 'i' };
+    }
+  }
   if (placementStatus) filter.placementStatus = placementStatus;
   if (batch) filter.batch = batch;
   if (isEligible !== undefined) filter.isEligible = isEligible === 'true';
+  if (minCgpa) {
+    const min = parseFloat(String(minCgpa));
+    if (!isNaN(min)) {
+      filter.cgpa = { $gte: min };
+    }
+  }
 
   return filter;
 };
@@ -356,7 +373,7 @@ export const getMyProfile = async (req: Request, res: Response, next: NextFuncti
             overallScore: (latestSaved as any).overallScore || 82,
           };
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Recalculate profile completion score (max 100)
@@ -405,7 +422,7 @@ export const getStudentDashboardData = async (req: Request, res: Response, next:
 
     // 2. Application Pipeline & KPIs
     const applications = await Application.find({ studentId: student._id }).populate('jobId', 'title company').sort({ updatedAt: -1 }).lean();
-    
+
     let appliedCount = 0;
     let shortlistedCount = 0;
     let interviewCount = 0;
@@ -432,7 +449,7 @@ export const getStudentDashboardData = async (req: Request, res: Response, next:
     const recentActivity = applications.slice(0, 5).map(app => {
       let text = `Applied to ${app.jobId ? (app.jobId as any).title : 'Job'}`;
       let type = 'application';
-      
+
       if (app.status === 'selected') {
         text = `Selected for ${app.jobId ? (app.jobId as any).title : 'Job'}`;
         type = 'success';
@@ -443,7 +460,7 @@ export const getStudentDashboardData = async (req: Request, res: Response, next:
         text = `Shortlisted for ${app.jobId ? (app.jobId as any).title : 'Job'}`;
         type = 'success';
       }
-      
+
       return {
         text,
         time: new Date(app.updatedAt).toLocaleDateString(),
@@ -504,27 +521,7 @@ export const getStudentById = async (req: Request, res: Response, next: NextFunc
     if (!student) {
       // Alias lookup for legacy mock IDs
       const aliasMap: Record<string, string> = {
-        'c1': 'arjun.k@rvce.edu.in',
-        '1': 'arjun.k@rvce.edu.in',
-        'c2': 'priya.sharma@vit.ac.in',
-        '2': 'priya.sharma@vit.ac.in',
-        'c3': 'rohit.menon@bmsce.ac.in',
-        '3': 'rohit.menon@bmsce.ac.in',
-        'c4': 'sneha.reddy@pes.edu',
-        '4': 'sneha.reddy@pes.edu',
-        'c5': 'vikram.s@msrit.edu',
-        '5': 'vikram.s@msrit.edu',
-        'c6': 'ananya.d@vjti.ac.in',
-        '6': 'ananya.d@vjti.ac.in',
-        'c7': 'karthik.raja@srmist.edu.in',
-        '7': 'karthik.raja@srmist.edu.in',
-        'c8': 'divya.s@ssn.edu.in',
-        '8': 'divya.s@ssn.edu.in',
-        'c9': 'aditya.verma@iitdh.ac.in',
-        '9': 'aditya.verma@iitdh.ac.in',
-        'c10': 'rahul.g@rvce.edu.in',
-        '10': 'rahul.g@rvce.edu.in',
-        'rahul-gowda': 'rahul.g@rvce.edu.in',
+
       };
 
       const resolvedEmail = aliasMap[paramId.toLowerCase()];
@@ -537,8 +534,8 @@ export const getStudentById = async (req: Request, res: Response, next: NextFunc
           { name: { $regex: new RegExp(`^${paramId.replace(/-/g, ' ')}$`, 'i') } },
         ]
       })
-      .populate('userId', 'name email avatar')
-      .populate('collegeId', 'name city');
+        .populate('userId', 'name email avatar')
+        .populate('collegeId', 'name city');
     }
 
     if (!student) throw createError('Student not found', 404);
