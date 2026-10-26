@@ -262,16 +262,23 @@ export const createCollege = async (req: Request, res: Response, next: NextFunct
     });
 
     // 2. Create College Admin User Account
-    const hashedPassword = await bcrypt.hash(password, 12);
-    const adminUser = await User.create({
-      name: tpoName || `${name} Admin`,
-      email: tpoEmail.toLowerCase(),
-      password: hashedPassword,
-      role: 'COLLEGE_ADMIN',
-      tenantId: college._id,
-      isActive: true,
-      emailVerified: true,
-    });
+    let adminUser;
+    try {
+      adminUser = await User.create({
+        name: tpoName || `${name} Admin`,
+        email: tpoEmail.toLowerCase(),
+        passwordHash: password, // Mongoose pre-save hook will hash this automatically
+        role: 'COLLEGE_ADMIN',
+        tenantId: college._id,
+        phone: tpoPhone || '',
+        isActive: true,
+        isEmailVerified: true,
+      });
+    } catch (userErr) {
+      // Rollback college creation if user account creation fails
+      await College.findByIdAndDelete(college._id);
+      throw userErr;
+    }
 
     const collegeData = college.toJSON() as Record<string, unknown>;
     collegeData.id = college._id.toString();
@@ -291,4 +298,57 @@ export const createCollege = async (req: Request, res: Response, next: NextFunct
     });
   } catch (error) { next(error); }
 };
+
+/**
+ * POST /api/colleges/:id/reset-password
+ * Super Admin: Reset or create credentials for a college admin user
+ */
+export const resetCollegePassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (!password || String(password).length < 6) {
+      throw createError('Password must be at least 6 characters', 400);
+    }
+
+    const college = await College.findById(id);
+    if (!college) throw createError('College not found', 404);
+
+    let user = await User.findOne({
+      $or: [
+        { email: college.tpoEmail?.toLowerCase() },
+        { tenantId: college._id }
+      ]
+    });
+
+    if (user) {
+      user.passwordHash = password; // pre-save hashes this
+      user.isActive = true;
+      user.isEmailVerified = true;
+      await user.save();
+    } else {
+      user = await User.create({
+        name: college.tpoName || `${college.name} Admin`,
+        email: (college.tpoEmail || college.email).toLowerCase(),
+        passwordHash: password,
+        role: 'COLLEGE_ADMIN',
+        tenantId: college._id,
+        phone: college.phone || '',
+        isActive: true,
+        isEmailVerified: true,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Password reset successfully for ${user.email}`,
+      data: {
+        email: user.email,
+        name: user.name,
+        collegeCode: college.code,
+      }
+    });
+  } catch (error) { next(error); }
+};
+
 
