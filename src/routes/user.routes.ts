@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth';
-import { getUsers, toggleUserStatus, deleteUser } from '../controllers/user.controller';
+import { getUsers, getUserById, toggleUserStatus, deleteUser } from '../controllers/user.controller';
 
 const router = Router();
 
@@ -9,6 +9,7 @@ router.use(authenticate);
 router.use(authorize('SUPER_ADMIN'));
 
 router.get('/', getUsers);
+router.get('/:id', getUserById);
 router.patch('/:id/toggle-status', toggleUserStatus);
 router.delete('/:id', deleteUser);
 

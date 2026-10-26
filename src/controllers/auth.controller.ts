@@ -19,21 +19,31 @@ export const loginSchema = z.object({
 });
 
 export const registerStudentSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').trim(),
-  email: z.string().email('Invalid email').toLowerCase(),
+  name: z.string().min(2, 'Full Name must be at least 2 characters').trim(),
+  email: z.string().email('Please enter a valid email address').toLowerCase(),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   phone: z.string().optional(),
   collegeId: z.string().min(1, 'College is required'),
   departmentId: z.string().optional(),
-  studentId: z.string().optional(),
-  department: z.string().min(1, 'Department name is required'),
+  studentId: z.string().min(1, 'Roll No / USN is required').trim(),
+  department: z.string().min(1, 'Department / Branch is required'),
   batch: z.string().min(4, 'Batch year is required'),
   degree: z.string().min(1, 'Degree is required'),
-  cgpa: z.number().min(0).max(10).optional().default(0),
+  cgpa: z.number().min(0, 'CGPA cannot be negative').max(10, 'CGPA cannot exceed 10.0'),
   collegeName: z.string().optional(),
   isIndividual: z.boolean().optional(),
-  aadharNumber: z.string().optional(),
-  aadharCard: z.any().optional(),
+  aadharNumber: z
+    .string({ required_error: 'Aadhar Card Number is mandatory for KYC identity verification' })
+    .transform((v) => v.replace(/\s+/g, ''))
+    .refine((v) => /^\d{12}$/.test(v), {
+      message: 'Aadhar Card Number must be exactly 12 digits',
+    }),
+  aadharCard: z.object({
+    fileName: z.string(),
+    fileUrl: z.string().min(1, 'Aadhar document is required'),
+    fileSize: z.number().optional(),
+    uploadedAt: z.string().optional(),
+  }, { required_error: 'Aadhar Card document upload is mandatory for identity verification' }),
 });
 
 export const registerCollegeSchema = z.object({
@@ -183,6 +193,26 @@ export const registerStudent = async (
         existingUser.otpExpiresAt = getOtpExpiry();
         existingUser.otpAttempts = 0;
         await existingUser.save();
+
+        await Student.findOneAndUpdate(
+          { userId: existingUser._id },
+          {
+            name: data.name,
+            studentId: data.studentId,
+            department: data.department,
+            degree: data.degree,
+            batch: data.batch,
+            cgpa: data.cgpa,
+            aadharNumber: data.aadharNumber,
+            aadharCard: {
+              fileName: data.aadharCard.fileName,
+              fileUrl: data.aadharCard.fileUrl,
+              fileSize: data.aadharCard.fileSize || 0,
+              uploadedAt: new Date(),
+            },
+          }
+        );
+
         await otpService.sendOtp(data.email, existingUser.name, otp);
 
         res.status(200).json({

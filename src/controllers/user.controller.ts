@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/User';
+import { Student } from '../models/Student';
+import { College } from '../models/College';
+import { Application } from '../models/Application';
+import { Company } from '../models/Company';
 import { createError } from '../middleware/errorHandler';
 
 /**
@@ -113,3 +117,67 @@ export const deleteUser = async (req: Request, res: Response, next: NextFunction
     next(error);
   }
 };
+
+/**
+ * GET /api/users/:id
+ * Super Admin: Get full details for a user, including linked student/college/company data & applications.
+ */
+export const getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id)
+      .populate('tenantId', 'name code city state email website logo affiliation establishedYear type')
+      .select('-passwordHash -otpCode -otpExpiresAt -passwordResetToken -passwordResetExpiresAt')
+      .lean();
+
+    if (!user) {
+      throw createError('User not found', 404);
+    }
+
+    let studentData: any = null;
+    let applications: any[] = [];
+    let collegeData: any = user.tenantId || null;
+    let recruiterData: any = null;
+
+    if (user.role === 'STUDENT') {
+      studentData = await Student.findOne({
+        $or: [{ userId: user._id }, { email: user.email }],
+      })
+        .populate('collegeId', 'name code city state logo website')
+        .lean();
+
+      if (studentData) {
+        applications = await Application.find({ studentId: studentData._id })
+          .populate('jobId', 'title companyName type location salary workMode')
+          .sort({ appliedAt: -1 })
+          .limit(10)
+          .lean();
+      }
+    } else if (user.role === 'COLLEGE_ADMIN' || user.role === 'TPO') {
+      if (!collegeData && user.tenantId) {
+        collegeData = await College.findById(user.tenantId).lean();
+      }
+    } else if (user.role === 'RECRUITER') {
+      recruiterData = await Company.findOne({
+        $or: [
+          { email: user.email },
+          { name: { $regex: user.name, $options: 'i' } },
+        ],
+      }).lean();
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user: { ...user, id: user._id.toString() },
+        student: studentData ? { ...studentData, id: studentData._id.toString() } : null,
+        college: collegeData,
+        recruiter: recruiterData,
+        applications,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
