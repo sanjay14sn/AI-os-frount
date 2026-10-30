@@ -56,4 +56,9 @@ export const env = {
     max: parseInt(process.env.RATE_LIMIT_MAX || '5000', 10),
     authMax: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '100', 10),
   },
+
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+  },
 } as const;
