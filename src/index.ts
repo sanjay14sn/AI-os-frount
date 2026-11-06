@@ -32,7 +32,7 @@ import communityRoutes from './routes/community.routes';
 import aiRoutes from './routes/ai.routes';
 import { emailRouter } from './routes/email.routes';
 import paymentRoutes from './routes/payment.routes';
-import { createOrder, verifyPayment } from './controllers/payment.controller';
+import { createOrder, verifyPayment, createStudentSubscription, verifySubscription } from './controllers/payment.controller';
 
 // ─── App Init ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -112,6 +112,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/email', emailRouter);
 app.use('/api/payment', paymentRoutes);
 app.post('/api/create-order', createOrder);
+app.post('/api/create-student-subscription', createStudentSubscription);
+app.post('/api/verify-subscription', verifySubscription);
 app.post('/api/verify-payment', verifyPayment);
 
 // ─── 404 & Error Handling ─────────────────────────────────────────────────────

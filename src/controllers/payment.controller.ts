@@ -157,6 +157,95 @@ export const createOrder = async (req: Request, res: Response) => {
   }
 };
 
+
+
+let studentPlanId: string | undefined;
+let studentPlanPromise: Promise<string> | undefined;
+
+const getStudentPlanId = async (razorpay: Razorpay): Promise<string> => {
+  const configuredPlanId = process.env.RAZORPAY_STUDENT_PLAN_ID;
+  if (configuredPlanId) return configuredPlanId;
+  if (studentPlanId) return studentPlanId;
+  if (!studentPlanPromise) {
+    studentPlanPromise = razorpay.plans.create({
+      period: 'monthly',
+      interval: 1,
+      item: {
+        name: 'AI Campus OS Student Placement Pass',
+        amount: 3000,
+        currency: 'INR',
+        description: 'Monthly student placement access after 14-day trial',
+      },
+      notes: { product: 'student-placement-autopay' },
+    }).then((plan) => {
+      studentPlanId = plan.id;
+      return plan.id;
+    }).catch((error) => {
+      studentPlanPromise = undefined;
+      throw error;
+    });
+  }
+  return studentPlanPromise;
+};
+
+/** Create a ₹30/month subscription with a 14-day trial (no upfront add-on). */
+export const createStudentSubscription = async (req: Request, res: Response) => {
+  try {
+    const keyId = env.razorpay.keyId || process.env.RAZORPAY_KEY_ID;
+    const razorpay = getRazorpayInstance();
+    if (!keyId || !razorpay) {
+      return res.status(401).json({ success: false, message: 'Razorpay credentials are not configured.' });
+    }
+    const planId = await getStudentPlanId(razorpay);
+    const startAt = Math.floor(Date.now() / 1000) + 14 * 24 * 60 * 60;
+    const subscription = await razorpay.subscriptions.create({
+      plan_id: planId,
+      total_count: 120,
+      quantity: 1,
+      customer_notify: 0,
+      start_at: startAt,
+      notes: {
+        studentId: String(req.body.studentId || ''),
+        college: String(req.body.college || ''),
+        studentEmail: String(req.body.email || ''),
+        trialDays: '14',
+        firstCharge: 'INR 30',
+      },
+    });
+    return res.status(200).json({
+      success: true,
+      subscription_id: subscription.id,
+      key_id: keyId,
+      start_at: startAt,
+    });
+  } catch (err: any) {
+    console.error('Razorpay student subscription creation failed:', err);
+    return res.status(500).json({ success: false, error: err.error?.description || err.message, message: 'Failed to create student AutoPay subscription.' });
+  }
+};
+
+/** Verify Razorpay's subscription authorization callback signature. */
+export const verifySubscription = async (req: Request, res: Response) => {
+  try {
+    const keySecret = env.razorpay.keySecret || process.env.RAZORPAY_KEY_SECRET;
+    const { razorpay_subscription_id, razorpay_payment_id, razorpay_signature } = req.body;
+    if (!keySecret) return res.status(401).json({ success: false, message: 'Razorpay secret is not configured.' });
+    if (!razorpay_subscription_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ success: false, message: 'Subscription ID, payment ID, and signature are required.' });
+    }
+    const expected = crypto.createHmac('sha256', keySecret)
+      .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+      .digest('hex');
+    const expectedBuffer = Buffer.from(expected, 'utf8');
+    const actualBuffer = Buffer.from(String(razorpay_signature), 'utf8');
+    const verified = expectedBuffer.length === actualBuffer.length && crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+    if (!verified) return res.status(400).json({ success: false, verified: false, message: 'Subscription signature verification failed.' });
+    return res.status(200).json({ success: true, verified: true, message: 'Subscription authorization verified.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, message: 'Could not verify subscription authorization.' });
+  }
+};
+
 /**
  * STEP 3: BACKEND - Verify Signature
  * Endpoint: POST /api/verify-payment or POST /api/payment/verify-payment
